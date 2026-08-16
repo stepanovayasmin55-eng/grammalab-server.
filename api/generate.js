@@ -20,9 +20,9 @@ module.exports = async (req, res) => {
     const { prompt } = req.body;
     const apiKey = process.env.GEMINI_API_KEY;
 
-    // Используем стабильную модель gemini-1.5-flash
+    // Прямой запрос к стандартному v1 с базовой моделью gemini-pro
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key=${apiKey}`,
       {
         method: 'POST',
         headers: {
@@ -31,7 +31,6 @@ module.exports = async (req, res) => {
         body: JSON.stringify({
           contents: [
             {
-              role: 'user',
               parts: [
                 {
                   text: prompt || 'Сгенерируй тестовый вопрос по русскому языку',
@@ -46,7 +45,7 @@ module.exports = async (req, res) => {
     const data = await response.json();
 
     if (!response.ok) {
-      throw new Error(data.error?.message || 'Ошибка API Gemini');
+      throw new Error(data.error?.message || 'Ошибка API');
     }
 
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
