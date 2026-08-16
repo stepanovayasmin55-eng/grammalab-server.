@@ -20,17 +20,25 @@ module.exports = async (req, res) => {
     const { prompt } = req.body;
     const apiKey = process.env.GEMINI_API_KEY;
 
-    // Новый Interactions API от Google
+    // Используем стабильную модель gemini-1.5-flash
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/interactions?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
       {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'gemini-2.5-flash',
-          input: prompt || 'Сгенерируй тестовый вопрос по русскому языку',
+          contents: [
+            {
+              role: 'user',
+              parts: [
+                {
+                  text: prompt || 'Сгенерируй тестовый вопрос по русскому языку',
+                },
+              ],
+            },
+          ],
         }),
       }
     );
@@ -38,11 +46,10 @@ module.exports = async (req, res) => {
     const data = await response.json();
 
     if (!response.ok) {
-      throw new Error(data.error?.message || 'Ошибка API');
+      throw new Error(data.error?.message || 'Ошибка API Gemini');
     }
 
-    // Получение ответа в формате Interactions API
-    const text = data.output?.[0]?.text || data.text || JSON.stringify(data);
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
     return res.status(200).json({ result: text });
   } catch (error) {
     console.error('Ошибка API Gemini:', error);
