@@ -20,12 +20,27 @@ module.exports = async (req, res) => {
       return res.status(500).json({ error: 'В Vercel не найден GROQ_API_KEY!' });
     }
 
+    // 1. Узнаем список моделей, которые реально доступны для твоего ключа
+    const modelsResponse = await fetch('https://api.groq.com/openai/v1/models', {
+      headers: { 'Authorization': `Bearer ${apiKey}` }
+    });
+    const modelsData = await modelsResponse.json();
+
+    if (!modelsResponse.ok || !modelsData.data || modelsData.data.length === 0) {
+      return res.status(500).json({ 
+        error: `Проблема с ключом GROQ_API_KEY. Проверь его в console.groq.com. Ответ: ${JSON.stringify(modelsData)}` 
+      });
+    }
+
+    // Берём первую доступную модель из твоего списка
+    const activeModel = modelsData.data[0].id;
+
     const systemPrompt = `Ты — эксперт по русскому языку. Сгенерируй ровно 10 умных и практических вопросов по теме: "${prompt || 'Русский язык'}".
 
 Правила:
 1. Вопросы на практику (найти ошибку, вставить букву, выбрать верную форму слова).
 2. Для каждого вопроса СТРОГО 3 варианта ответа (1 верный, 2 неверных).
-3. Варианты ответов должны быть короткими, чтобы влезали на экран телефона.
+3. Варианты ответов должны быть короткими.
 
 Верни ответ СТРОГО в формате чистого JSON-массива без разметки markdown (без \`\`\`json) и без вступительных слов:
 [
@@ -36,7 +51,7 @@ module.exports = async (req, res) => {
   }
 ]`;
 
-    // Актуальная модель Groq
+    // 2. Делаем запрос к автоматически найденной модели
     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -44,7 +59,7 @@ module.exports = async (req, res) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'llama-3.3-70b-versatile',
+        model: activeModel,
         messages: [{ role: 'user', content: systemPrompt }],
         temperature: 0.3,
       }),
@@ -53,8 +68,7 @@ module.exports = async (req, res) => {
     const data = await response.json();
 
     if (!response.ok) {
-      const errMsg = data.error?.message || JSON.stringify(data);
-      return res.status(500).json({ error: `Groq Отклонил: ${errMsg}` });
+      return res.status(500).json({ error: `Ошибка генерации (${activeModel}): ${data.error?.message}` });
     }
 
     let rawText = data.choices?.[0]?.message?.content || '';
