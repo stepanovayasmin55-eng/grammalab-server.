@@ -41,8 +41,41 @@ module.exports = async (req, res) => {
     let rawText = null;
     let lastError = null;
 
-    // 1. Попытка через Groq API
-    if (groqKey) {
+    // 1. Попытка через Gemini API (с режимом чистого JSON и стабильными моделями)
+    if (geminiKey) {
+      const geminiModels = ['gemini-2.5-flash', 'gemini-2.5-pro'];
+
+      for (const model of geminiModels) {
+        try {
+          const geminiResponse = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: systemPrompt }] }],
+                generationConfig: {
+                  response_mime_type: 'application/json'
+                }
+              }),
+            }
+          );
+
+          const geminiData = await geminiResponse.json();
+          if (geminiResponse.ok && geminiData.candidates?.[0]?.content?.parts?.[0]?.text) {
+            rawText = geminiData.candidates[0].content.parts[0].text;
+            break;
+          } else {
+            lastError = `Gemini (${model}): ${geminiData.error?.message || 'Ошибка генерации'}`;
+          }
+        } catch (err) {
+          lastError = `Gemini Error: ${err.message}`;
+        }
+      }
+    }
+
+    // 2. Резервная попытка через Groq API
+    if (!rawText && groqKey) {
       const groqModels = ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant'];
 
       for (const model of groqModels) {
@@ -73,36 +106,11 @@ module.exports = async (req, res) => {
       }
     }
 
-    // 2. Резервный Gemini API (модель gemini-3.6-flash)
-    if (!rawText && geminiKey) {
-      try {
-        const geminiResponse = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${geminiKey}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [{ parts: [{ text: systemPrompt }] }]
-            }),
-          }
-        );
-
-        const geminiData = await geminiResponse.json();
-        if (geminiResponse.ok && geminiData.candidates?.[0]?.content?.parts?.[0]?.text) {
-          rawText = geminiData.candidates[0].content.parts[0].text;
-        } else {
-          lastError = `Gemini: ${geminiData.error?.message || 'Ошибка генерации'}`;
-        }
-      } catch (err) {
-        lastError = `Gemini Error: ${err.message}`;
-      }
-    }
-
     if (!rawText) {
       return res.status(500).json({ error: `Не удалось сгенерировать вопросы: ${lastError}` });
     }
 
-    // Очистка и парсинг JSON
+    // Безопасное выделение и парсинг JSON
     rawText = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
     const firstBracket = rawText.indexOf('[');
     const lastBracket = rawText.lastIndexOf(']');
@@ -111,7 +119,12 @@ module.exports = async (req, res) => {
       rawText = rawText.substring(firstBracket, lastBracket + 1);
     }
 
-    const questionsArray = JSON.parse(rawText);
+    let questionsArray;
+    try {
+      questionsArray = JSON.parse(rawText);
+    } catch (parseErr) {
+      return res.status(500).json({ error: `Неверный формат ответа ИИ. Попробуйте еще раз. (${parseErr.message})` });
+    }
 
     return res.status(200).json(questionsArray);
   } catch (error) {
