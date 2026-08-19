@@ -20,28 +20,33 @@ module.exports = async (req, res) => {
       return res.status(500).json({ error: 'В Vercel не найден GROQ_API_KEY!' });
     }
 
-    // 1. Запрашиваем доступные модели
+    // 1. Получаем список рабочих моделей
     const modelsResponse = await fetch('https://api.groq.com/openai/v1/models', {
       headers: { 'Authorization': `Bearer ${apiKey}` }
     });
     const modelsData = await modelsResponse.json();
 
-    if (!modelsResponse.ok || !modelsData.data || modelsData.data.length === 0) {
-      return res.status(500).json({ 
-        error: `Проблема с ключом GROQ_API_KEY. Проверь его в console.groq.com.` 
+    let activeModel = 'llama-3.3-70b-versatile';
+
+    if (modelsResponse.ok && modelsData.data && modelsData.data.length > 0) {
+      // Отфильтровываем аудио, модерацию и специфические модели
+      const validModels = modelsData.data.filter(m => {
+        const id = m.id.toLowerCase();
+        return (
+          id.includes('llama') &&
+          !id.includes('guard') &&
+          !id.includes('whisper') &&
+          !id.includes('orpheus') &&
+          !id.includes('llama3-8b-8192') &&
+          !id.includes('llama3-70b-8192')
+        );
       });
+
+      if (validModels.length > 0) {
+        // Выбираем самую свежую или самую крупную модель
+        activeModel = validModels[0].id;
+      }
     }
-
-    // 2. Ищем подходящую модель семейства Llama, исключая аудио и узкие инструменты
-    const llamaModel = modelsData.data.find(m => 
-      m.id.toLowerCase().includes('llama') && 
-      !m.id.toLowerCase().includes('guard') && 
-      !m.id.toLowerCase().includes('whisper') &&
-      !m.id.toLowerCase().includes('orpheus')
-    );
-
-    // Если нашли Llama — берём её, иначе fallback на стандартное имя 'llama3-8b-8192'
-    const activeModel = llamaModel ? llamaModel.id : 'llama3-8b-8192';
 
     const systemPrompt = `Ты — эксперт по русскому языку. Сгенерируй 10 практических вопросов по теме: "${prompt || 'Русский язык'}".
 
@@ -81,7 +86,7 @@ module.exports = async (req, res) => {
 
     let rawText = data.choices?.[0]?.message?.content || '';
     
-    // Чистим ответ от markdown
+    // Чистим текст от markdown
     rawText = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
 
     const firstBracket = rawText.indexOf('[');
