@@ -17,21 +17,18 @@ module.exports = async (req, res) => {
     const apiKey = process.env.GROQ_API_KEY;
 
     if (!apiKey) {
-      return res.status(500).json({ error: 'Ключ GROQ_API_KEY не найден в Vercel' });
+      return res.status(500).json({ error: 'Ключ API не настроен' });
     }
 
-    const systemPrompt = `Ты — эксперт по русскому языку. Сгенерируй ровно 10 умных, практических вопросов по теме: "${prompt || 'Русский язык'}".
-
-Требования:
-1. Вопросы на практику (найти ошибку, выбрать верную букву, правильную форму слова).
-2. Для каждого вопроса СТРОГО 3 варианта ответа (1 верный, 2 неверных).
-3. Короткие варианты ответов.
-
-Верни ТОЛЬКО массив JSON без какого-либо текста, вступительных слов и разметки markdown:
+    const systemPrompt = `Ты — учитель русского языка. Напиши 10 практических заданий по теме "${prompt || 'Русский язык'}".
+Правила:
+- Вопросы должны быть интересными и на практику (найти ошибку, вставить букву, выбрать правильную форму).
+- Ровно 3 варианта ответа к каждому вопросу (1 верный, 2 неверных).
+- Формат строго JSON-массив без текста вокруг:
 [
   {
-    "question": "Текст вопроса?",
-    "options": ["Вариант 1", "Вариант 2", "Вариант 3"],
+    "question": "Вопрос?",
+    "options": ["Ответ 1", "Ответ 2", "Ответ 3"],
     "answer": 0
   }
 ]`;
@@ -43,34 +40,25 @@ module.exports = async (req, res) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'llama-3.3-70b-versatile',
-        messages: [
-          {
-            role: 'user',
-            content: systemPrompt,
-          },
-        ],
-        temperature: 0.3,
+        model: 'llama-3.1-8b-instant',
+        messages: [{ role: 'user', content: systemPrompt }],
+        temperature: 0.2,
       }),
     });
 
     const data = await response.json();
 
     if (!response.ok) {
-      throw new Error(data.error?.message || 'Ошибка API Groq');
+      return res.status(500).json({ error: 'Ошибка Groq API', details: data.error?.message });
     }
 
     let rawText = data.choices?.[0]?.message?.content || '';
-
-    // Очищаем результат от возможной markdown-разметки ```json ... ```
+    
+    // Чистим текст от возможной разметки markdown
     rawText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
 
     return res.status(200).json({ result: rawText });
   } catch (error) {
-    console.error('Ошибка сервера:', error);
-    return res.status(500).json({
-      error: 'Ошибка сервера',
-      details: error.message,
-    });
+    return res.status(500).json({ error: 'Ошибка сервера', details: error.message });
   }
 };
