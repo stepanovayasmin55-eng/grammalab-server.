@@ -14,11 +14,19 @@ module.exports = async (req, res) => {
 
   try {
     const { prompt } = req.body || {};
-    const apiKey = process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.trim() : null;
+    const apiKey = process.env.GROQ_API_KEY ? process.env.GROQ_API_KEY.trim() : null;
 
     if (!apiKey) {
-      return res.status(500).json({ error: 'В Vercel не найден GEMINI_API_KEY!' });
+      return res.status(500).json({ error: 'В Vercel не найден GROQ_API_KEY!' });
     }
+
+    // Актуальный список моделей Groq для автоматического перебора
+    const candidateModels = [
+      'llama-3.3-70b-versatile',
+      'llama-3.1-8b-instant',
+      'llama3-70b-8192',
+      'llama3-8b-8192'
+    ];
 
     const systemPrompt = `Ты — эксперт по русскому языку. Сгенерируй 10 практических вопросов по теме: "${prompt || 'Русский язык'}".
 
@@ -37,33 +45,32 @@ module.exports = async (req, res) => {
   }
 ]`;
 
-    // Список актуальных моделей Gemini
-    const geminiModels = [
-      'gemini-2.0-flash',
-      'gemini-1.5-flash-8b',
-      'gemini-2.5-flash'
-    ];
-
     let rawText = null;
     let lastError = null;
 
-    for (const model of geminiModels) {
+    // Пробуем модели по очереди, пока одна не сработает
+    for (const model of candidateModels) {
       try {
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+        const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
           body: JSON.stringify({
-            contents: [{ parts: [{ text: systemPrompt }] }]
+            model: model,
+            messages: [{ role: 'user', content: systemPrompt }],
+            temperature: 0.2
           }),
         });
 
         const data = await response.json();
 
-        if (response.ok && data.candidates?.[0]?.content?.parts?.[0]?.text) {
-          rawText = data.candidates[0].content.parts[0].text;
-          break;
+        if (response.ok && data.choices?.[0]?.message?.content) {
+          rawText = data.choices[0].message.content;
+          break; // Выходим из цикла при успешном ответе
         } else {
-          lastError = data.error?.message || 'Ошибка модели Gemini';
+          lastError = data.error?.message || `Модель ${model} недоступна`;
         }
       } catch (err) {
         lastError = err.message;
@@ -71,9 +78,10 @@ module.exports = async (req, res) => {
     }
 
     if (!rawText) {
-      return res.status(500).json({ error: `Ошибка Gemini: ${lastError}` });
+      return res.status(500).json({ error: `Ошибка Groq: ${lastError}` });
     }
 
+    // Очистка ответа от лишней разметки
     rawText = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
 
     const firstBracket = rawText.indexOf('[');
