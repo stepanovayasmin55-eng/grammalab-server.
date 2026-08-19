@@ -20,18 +20,8 @@ module.exports = async (req, res) => {
       return res.status(500).json({ error: 'В Vercel не найден GROQ_API_KEY!' });
     }
 
-    const modelsResponse = await fetch('https://api.groq.com/openai/v1/models', {
-      headers: { 'Authorization': `Bearer ${apiKey}` }
-    });
-    const modelsData = await modelsResponse.json();
-
-    if (!modelsResponse.ok || !modelsData.data || modelsData.data.length === 0) {
-      return res.status(500).json({ 
-        error: `Проблема с ключом GROQ_API_KEY. Проверь его в console.groq.com.` 
-      });
-    }
-
-    const activeModel = modelsData.data[0].id;
+    // Включаем проверенную рабочую модель
+    const activeModel = 'llama-3.1-8b-instant';
 
     const systemPrompt = `Ты — эксперт по русскому языку. Сгенерируй 10 практических вопросов по теме: "${prompt || 'Русский язык'}".
 
@@ -71,7 +61,7 @@ module.exports = async (req, res) => {
 
     let rawText = data.choices?.[0]?.message?.content || '';
     
-    // Очищаем от markdown
+    // Очищаем от разметки markdown
     rawText = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
 
     const firstBracket = rawText.indexOf('[');
@@ -80,7 +70,6 @@ module.exports = async (req, res) => {
       rawText = rawText.substring(firstBracket, lastBracket + 1);
     }
 
-    // Возвращаем объект в формате { result: "строка JSON" }, как просит фронтенд
     return res.status(200).json({ result: rawText });
   } catch (error) {
     return res.status(500).json({ error: `Ошибка обработки ответа: ${error.message}` });
