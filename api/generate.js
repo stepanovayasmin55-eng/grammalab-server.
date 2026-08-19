@@ -41,13 +41,11 @@ module.exports = async (req, res) => {
     let rawText = null;
     let lastError = null;
 
-    // 1. Актуальные рабочие модели Groq
+    // 1. Попытка через Groq API
     if (groqKey) {
       const groqModels = [
         'llama-3.3-70b-versatile',
-        'llama-3.1-8b-instant',
-        'openai/gpt-oss-120b',
-        'openai/gpt-oss-20b'
+        'llama-3.1-8b-instant'
       ];
 
       for (const model of groqModels) {
@@ -104,20 +102,24 @@ module.exports = async (req, res) => {
     }
 
     if (!rawText) {
-      return res.status(500).json({ error: `Не удалось сгенерировать вопросы. Ошибка: ${lastError}` });
+      return res.status(500).json({ error: `Не удалось сгенерировать вопросы: ${lastError}` });
     }
 
-    // Очистка ответа от Markdown
+    // Вырезаем чистый JSON-массив
     rawText = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
-
     const firstBracket = rawText.indexOf('[');
     const lastBracket = rawText.lastIndexOf(']');
+    
     if (firstBracket !== -1 && lastBracket !== -1) {
       rawText = rawText.substring(firstBracket, lastBracket + 1);
     }
 
-    return res.status(200).json({ result: rawText });
+    // Парсим массив в настоящий объект
+    const questionsArray = JSON.parse(rawText);
+
+    // Возвращаем данные так, как ожидает клиент
+    return res.status(200).json(questionsArray);
   } catch (error) {
-    return res.status(500).json({ error: `Системная ошибка: ${error.message}` });
+    return res.status(500).json({ error: `Ошибка обработки ответа: ${error.message}` });
   }
 };
