@@ -1,5 +1,5 @@
 module.exports = async (req, res) => {
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
   res.setHeader(
@@ -12,76 +12,47 @@ module.exports = async (req, res) => {
     return;
   }
 
-  try {
-    const { prompt } = req.body || {};
-    const apiKey = process.env.GROQ_API_KEY ? process.env.GROQ_API_KEY.trim() : null;
-
-    if (!apiKey) {
-      return res.status(500).json({ error: 'В Vercel не найден GROQ_API_KEY!' });
-    }
-
-    const modelsResponse = await fetch('https://api.groq.com/openai/v1/models', {
-      headers: { 'Authorization': `Bearer ${apiKey}` }
-    });
-    const modelsData = await modelsResponse.json();
-
-    if (!modelsResponse.ok || !modelsData.data || modelsData.data.length === 0) {
-      return res.status(500).json({ 
-        error: `Проблема с ключом GROQ_API_KEY. Проверь его в console.groq.com.` 
-      });
-    }
-
-    const activeModel = modelsData.data[0].id;
-
-    const systemPrompt = `Ты — эксперт по русскому языку. Сгенерируй 10 практических вопросов по теме: "${prompt || 'Русский язык'}".
-
-ПРАВИЛА:
-1. Ровно 10 вопросов.
-2. Для каждого вопроса СТРОГО 3 варианта ответа в массиве options (1 верный, 2 неверных).
-3. Поле answer — это индекс верного ответа (0, 1 или 2).
-4. Варианты ответов короткие.
-
-Верни ТОЛЬКО валидный JSON-массив без markdown-разметки (без \`\`\`json) и без постороннего текста:
-[
-  {
-    "question": "Текст вопроса?",
-    "options": ["Вариант 1", "Вариант 2", "Вариант 3"],
-    "answer": 0
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
   }
-]`;
 
-    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: activeModel,
-        messages: [{ role: 'user', content: systemPrompt }],
-        temperature: 0.2,
-      }),
-    });
+  try {
+    const { prompt } = req.body;
+    const apiKey = process.env.GROQ_API_KEY;
+
+    const response = await fetch(
+      'https://api.groq.com/openai/v1/chat/completions',
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'llama-3.3-70b-versatile',
+          messages: [
+            {
+              role: 'user',
+              content: prompt || 'Сгенерируй тестовый вопрос по русскому языку',
+            },
+          ],
+        }),
+      }
+    );
 
     const data = await response.json();
 
     if (!response.ok) {
-      return res.status(500).json({ error: `Ошибка генерации: ${data.error?.message}` });
+      throw new Error(data.error?.message || 'Ошибка API Groq');
     }
 
-    let rawText = data.choices?.[0]?.message?.content || '';
-    
-    // Очищаем от возможных тегов markdown
-    rawText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
-
-    // Парсим JSON и проверяем структуру
-    let parsedData = JSON.parse(rawText);
-    if (!Array.isArray(parsedData) && parsedData.questions) {
-      parsedData = parsedData.questions;
-    }
-
-    return res.status(200).json(parsedData);
+    const text = data.choices?.[0]?.message?.content || '';
+    return res.status(200).json({ result: text });
   } catch (error) {
-    return res.status(500).json({ error: `Ошибка обработки ответа: ${error.message}` });
+    console.error('Ошибка API:', error);
+    return res.status(500).json({
+      error: 'Ошибка при генерации заданий',
+      details: error.message,
+    });
   }
 };
