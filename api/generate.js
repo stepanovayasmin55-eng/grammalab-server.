@@ -20,36 +20,13 @@ module.exports = async (req, res) => {
       return res.status(500).json({ error: 'В Vercel не найден GROQ_API_KEY!' });
     }
 
-    // 1. Получаем список моделей, реально доступных для твоей API-ключа
-    const modelsResponse = await fetch('https://api.groq.com/openai/v1/models', {
-      headers: { 'Authorization': `Bearer ${apiKey}` }
-    });
-    const modelsData = await modelsResponse.json();
-
-    if (!modelsResponse.ok || !modelsData.data || modelsData.data.length === 0) {
-      return res.status(500).json({ 
-        error: `Проблема с ключом GROQ_API_KEY. Проверь его в console.groq.com.` 
-      });
-    }
-
-    // 2. Исключаем специфические модели (аудио, Guard, Orpheus, Whisper)
-    const availableModels = modelsData.data
-      .map(m => m.id)
-      .filter(id => {
-        const lower = id.toLowerCase();
-        return !lower.includes('guard') && 
-               !lower.includes('whisper') && 
-               !lower.includes('orpheus') && 
-               !lower.includes('vision') &&
-               !lower.includes('safetensors');
-      });
-
-    if (availableModels.length === 0) {
-      return res.status(500).json({ error: 'Нет доступных текстовых моделей в вашем аккаунте Groq.' });
-    }
-
-    // Берем первую рабочую текстовую модель из доступных
-    const activeModel = availableModels[0];
+    // Список актуальных моделей для перебора по очереди
+    const candidateModels = [
+      'llama-3.1-8b-instant',
+      'llama-3.3-70b-versatile',
+      'mixtral-8x7b-32768',
+      'gemma2-9b-it'
+    ];
 
     const systemPrompt = `Ты — эксперт по русскому языку. Сгенерируй 10 практических вопросов по теме: "${prompt || 'Русский язык'}".
 
@@ -68,28 +45,43 @@ module.exports = async (req, res) => {
   }
 ]`;
 
-    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: activeModel,
-        messages: [{ role: 'user', content: systemPrompt }],
-        temperature: 0.2
-      }),
-    });
+    let rawText = null;
+    let lastError = null;
 
-    const data = await response.json();
+    // Пробуем каждую модель из списка, пока одна из них не ответит успешно
+    for (const model of candidateModels) {
+      try {
+        const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: model,
+            messages: [{ role: 'user', content: systemPrompt }],
+            temperature: 0.2
+          }),
+        });
 
-    if (!response.ok) {
-      return res.status(500).json({ error: `Ошибка генерации (${activeModel}): ${data.error?.message}` });
+        const data = await response.json();
+
+        if (response.ok && data.choices?.[0]?.message?.content) {
+          rawText = data.choices[0].message.content;
+          break; // Модель успешно сгенерировала ответ, выходим из цикла!
+        } else {
+          lastError = data.error?.message || 'Неизвестная ошибка модели';
+        }
+      } catch (err) {
+        lastError = err.message;
+      }
     }
 
-    let rawText = data.choices?.[0]?.message?.content || '';
-    
-    // Очищаем от разметки markdown
+    if (!rawText) {
+      return res.status(500).json({ error: `Не удалось сгенерировать с доступными моделями: ${lastError}` });
+    }
+
+    // Очищаем результат от возможной markdown-разметки
     rawText = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
 
     const firstBracket = rawText.indexOf('[');
