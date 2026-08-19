@@ -41,12 +41,9 @@ module.exports = async (req, res) => {
     let rawText = null;
     let lastError = null;
 
-    // 1. Попытка через Groq API
+    // 1. Пробуем Groq (актуальные модели)
     if (groqKey) {
-      const groqModels = [
-        'llama-3.3-70b-versatile',
-        'llama-3.1-8b-instant'
-      ];
+      const groqModels = ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant'];
 
       for (const model of groqModels) {
         try {
@@ -68,7 +65,7 @@ module.exports = async (req, res) => {
             rawText = data.choices[0].message.content;
             break;
           } else {
-            lastError = `Groq (${model}): ${data.error?.message || 'Недоступна'}`;
+            lastError = `Groq (${model}): ${data.error?.message || 'Ошибка доступа'}`;
           }
         } catch (err) {
           lastError = `Groq Error: ${err.message}`;
@@ -76,11 +73,11 @@ module.exports = async (req, res) => {
       }
     }
 
-    // 2. Резервный Gemini API (если Groq не ответил)
+    // 2. Резервный Gemini API (с актуальной моделью gemini-2.0-flash)
     if (!rawText && geminiKey) {
       try {
         const geminiResponse = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -105,7 +102,7 @@ module.exports = async (req, res) => {
       return res.status(500).json({ error: `Не удалось сгенерировать вопросы: ${lastError}` });
     }
 
-    // Вырезаем чистый JSON-массив
+    // Вырезаем и парсим JSON
     rawText = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
     const firstBracket = rawText.indexOf('[');
     const lastBracket = rawText.lastIndexOf(']');
@@ -114,10 +111,8 @@ module.exports = async (req, res) => {
       rawText = rawText.substring(firstBracket, lastBracket + 1);
     }
 
-    // Парсим массив в настоящий объект
     const questionsArray = JSON.parse(rawText);
 
-    // Возвращаем данные так, как ожидает клиент
     return res.status(200).json(questionsArray);
   } catch (error) {
     return res.status(500).json({ error: `Ошибка обработки ответа: ${error.message}` });
