@@ -37,21 +37,43 @@ module.exports = async (req, res) => {
   }
 ]`;
 
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: systemPrompt }] }]
-      }),
-    });
+    // Список актуальных моделей Gemini
+    const geminiModels = [
+      'gemini-2.0-flash',
+      'gemini-1.5-flash-8b',
+      'gemini-2.5-flash'
+    ];
 
-    const data = await response.json();
+    let rawText = null;
+    let lastError = null;
 
-    if (!response.ok) {
-      return res.status(500).json({ error: `Ошибка Gemini: ${data.error?.message}` });
+    for (const model of geminiModels) {
+      try {
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: systemPrompt }] }]
+          }),
+        });
+
+        const data = await response.json();
+
+        if (response.ok && data.candidates?.[0]?.content?.parts?.[0]?.text) {
+          rawText = data.candidates[0].content.parts[0].text;
+          break;
+        } else {
+          lastError = data.error?.message || 'Ошибка модели Gemini';
+        }
+      } catch (err) {
+        lastError = err.message;
+      }
     }
 
-    let rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    if (!rawText) {
+      return res.status(500).json({ error: `Ошибка Gemini: ${lastError}` });
+    }
+
     rawText = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
 
     const firstBracket = rawText.indexOf('[');
@@ -62,6 +84,6 @@ module.exports = async (req, res) => {
 
     return res.status(200).json({ result: rawText });
   } catch (error) {
-    return res.status(500).json({ error: `Ошибка генерации: ${error.message}` });
+    return res.status(500).json({ error: `Ошибка обработки ответа: ${error.message}` });
   }
 };
