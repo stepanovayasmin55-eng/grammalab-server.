@@ -17,17 +17,17 @@ module.exports = async (req, res) => {
     const apiKey = process.env.GROQ_API_KEY;
 
     if (!apiKey) {
-      return res.status(500).json({ error: 'API key is missing' });
+      return res.status(500).json({ error: 'Ключ GROQ_API_KEY не найден в Vercel' });
     }
 
-    const systemPrompt = `Ты — эксперт по русскому языку. Сгенерируй ровно 10 умных и практических вопросов по теме: "${prompt || 'Русский язык'}".
+    const systemPrompt = `Ты — эксперт по русскому языку. Сгенерируй ровно 10 умных, практических вопросов по теме: "${prompt || 'Русский язык'}".
 
-Правила:
-1. Вопросы должны быть на практику: найти ошибку, вставить пропущенную букву, выбрать правильную форму слова.
-2. Для каждого вопроса сделай СТРОГО 3 варианта ответа (1 верный, 2 неверных).
-3. Варианты ответов должны быть короткими.
+Требования:
+1. Вопросы на практику (найти ошибку, выбрать верную букву, правильную форму слова).
+2. Для каждого вопроса СТРОГО 3 варианта ответа (1 верный, 2 неверных).
+3. Короткие варианты ответов.
 
-Верни ответ СТРОГО в формате JSON без разметки markdown:
+Верни ТОЛЬКО массив JSON без какого-либо текста, вступительных слов и разметки markdown:
 [
   {
     "question": "Текст вопроса?",
@@ -43,28 +43,33 @@ module.exports = async (req, res) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'llama-3.1-8b-instant',
+        model: 'llama-3.3-70b-versatile',
         messages: [
           {
             role: 'user',
             content: systemPrompt,
           },
         ],
-        temperature: 0.5,
+        temperature: 0.3,
       }),
     });
 
     const data = await response.json();
 
     if (!response.ok) {
-      throw new Error(data.error?.message || 'Groq Error');
+      throw new Error(data.error?.message || 'Ошибка API Groq');
     }
 
-    const text = data.choices?.[0]?.message?.content || '';
-    return res.status(200).json({ result: text });
+    let rawText = data.choices?.[0]?.message?.content || '';
+
+    // Очищаем результат от возможной markdown-разметки ```json ... ```
+    rawText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
+
+    return res.status(200).json({ result: rawText });
   } catch (error) {
+    console.error('Ошибка сервера:', error);
     return res.status(500).json({
-      error: ' Ошибка сервера',
+      error: 'Ошибка сервера',
       details: error.message,
     });
   }
