@@ -14,19 +14,12 @@ module.exports = async (req, res) => {
 
   try {
     const { prompt } = req.body || {};
-    const apiKey = process.env.GROQ_API_KEY ? process.env.GROQ_API_KEY.trim() : null;
+    const groqKey = process.env.GROQ_API_KEY ? process.env.GROQ_API_KEY.trim() : null;
+    const geminiKey = process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.trim() : null;
 
-    if (!apiKey) {
-      return res.status(500).json({ error: 'В Vercel не найден GROQ_API_KEY!' });
+    if (!groqKey && !geminiKey) {
+      return res.status(500).json({ error: 'В Vercel не найдены ключи API!' });
     }
-
-    // Актуальный список моделей Groq для автоматического перебора
-    const candidateModels = [
-      'llama-3.3-70b-versatile',
-      'llama-3.1-8b-instant',
-      'llama3-70b-8192',
-      'llama3-8b-8192'
-    ];
 
     const systemPrompt = `Ты — эксперт по русскому языку. Сгенерируй 10 практических вопросов по теме: "${prompt || 'Русский язык'}".
 
@@ -48,40 +41,73 @@ module.exports = async (req, res) => {
     let rawText = null;
     let lastError = null;
 
-    // Пробуем модели по очереди, пока одна не сработает
-    for (const model of candidateModels) {
+    // 1. Актуальные рабочие модели Groq
+    if (groqKey) {
+      const groqModels = [
+        'llama-3.3-70b-versatile',
+        'llama-3.1-8b-instant',
+        'openai/gpt-oss-120b',
+        'openai/gpt-oss-20b'
+      ];
+
+      for (const model of groqModels) {
+        try {
+          const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${groqKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: model,
+              messages: [{ role: 'user', content: systemPrompt }],
+              temperature: 0.2
+            }),
+          });
+
+          const data = await response.json();
+          if (response.ok && data.choices?.[0]?.message?.content) {
+            rawText = data.choices[0].message.content;
+            break;
+          } else {
+            lastError = `Groq (${model}): ${data.error?.message || 'Недоступна'}`;
+          }
+        } catch (err) {
+          lastError = `Groq Error: ${err.message}`;
+        }
+      }
+    }
+
+    // 2. Резервный Gemini API (если Groq не ответил)
+    if (!rawText && geminiKey) {
       try {
-        const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${apiKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: model,
-            messages: [{ role: 'user', content: systemPrompt }],
-            temperature: 0.2
-          }),
-        });
+        const geminiResponse = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: systemPrompt }] }]
+            }),
+          }
+        );
 
-        const data = await response.json();
-
-        if (response.ok && data.choices?.[0]?.message?.content) {
-          rawText = data.choices[0].message.content;
-          break; // Выходим из цикла при успешном ответе
+        const geminiData = await geminiResponse.json();
+        if (geminiResponse.ok && geminiData.candidates?.[0]?.content?.parts?.[0]?.text) {
+          rawText = geminiData.candidates[0].content.parts[0].text;
         } else {
-          lastError = data.error?.message || `Модель ${model} недоступна`;
+          lastError = `Gemini: ${geminiData.error?.message || 'Ошибка генерации'}`;
         }
       } catch (err) {
-        lastError = err.message;
+        lastError = `Gemini Error: ${err.message}`;
       }
     }
 
     if (!rawText) {
-      return res.status(500).json({ error: `Ошибка Groq: ${lastError}` });
+      return res.status(500).json({ error: `Не удалось сгенерировать вопросы. Ошибка: ${lastError}` });
     }
 
-    // Очистка ответа от лишней разметки
+    // Очистка ответа от Markdown
     rawText = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
 
     const firstBracket = rawText.indexOf('[');
@@ -92,6 +118,6 @@ module.exports = async (req, res) => {
 
     return res.status(200).json({ result: rawText });
   } catch (error) {
-    return res.status(500).json({ error: `Ошибка обработки ответа: ${error.message}` });
+    return res.status(500).json({ error: `Системная ошибка: ${error.message}` });
   }
 };
