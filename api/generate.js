@@ -43,7 +43,7 @@ module.exports = async (req, res) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'llama-3.3-70b-versatile',
+        model: 'llama3-70b-8192',
         messages: [
           {
             role: 'user',
@@ -57,7 +57,6 @@ module.exports = async (req, res) => {
     const data = await response.json();
 
     if (!response.ok) {
-      // Возвращаем подробное сообщение от Groq, если что-то не так
       const errMsg = data.error?.message || JSON.stringify(data);
       return res.status(500).json({ error: `Groq Отклонил: ${errMsg}` });
     }
