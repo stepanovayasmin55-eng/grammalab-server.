@@ -17,18 +17,21 @@ module.exports = async (req, res) => {
     const apiKey = process.env.GROQ_API_KEY;
 
     if (!apiKey) {
-      return res.status(500).json({ error: 'Ключ API не настроен' });
+      return res.status(500).json({ error: 'В Vercel не найден GROQ_API_KEY!' });
     }
 
-    const systemPrompt = `Ты — учитель русского языка. Напиши 10 практических заданий по теме "${prompt || 'Русский язык'}".
+    const systemPrompt = `Ты — эксперт по русскому языку. Сгенерируй ровно 10 умных, интересных и практических вопросов по теме: "${prompt || 'Русский язык'}".
+
 Правила:
-- Вопросы должны быть интересными и на практику (найти ошибку, вставить букву, выбрать правильную форму).
-- Ровно 3 варианта ответа к каждому вопросу (1 верный, 2 неверных).
-- Формат строго JSON-массив без текста вокруг:
+1. Вопросы на практику (найти ошибку, вставить букву, выбрать верную форму слова).
+2. Для каждого вопроса СТРОГО 3 варианта ответа (1 верный, 2 неверных).
+3. Варианты ответов должны быть короткими, чтобы влезали на экран телефона.
+
+Верни ответ СТРОГО в формате чистого JSON-массива без разметки markdown (без \`\`\`json) и без вступительных слов:
 [
   {
-    "question": "Вопрос?",
-    "options": ["Ответ 1", "Ответ 2", "Ответ 3"],
+    "question": "Текст вопроса?",
+    "options": ["Вариант 1", "Вариант 2", "Вариант 3"],
     "answer": 0
   }
 ]`;
@@ -36,29 +39,36 @@ module.exports = async (req, res) => {
     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${apiKey}`,
+        'Authorization': `Bearer ${apiKey.trim()}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'llama-3.1-8b-instant',
-        messages: [{ role: 'user', content: systemPrompt }],
-        temperature: 0.2,
+        model: 'llama-3.3-70b-versatile',
+        messages: [
+          {
+            role: 'user',
+            content: systemPrompt,
+          },
+        ],
+        temperature: 0.3,
       }),
     });
 
     const data = await response.json();
 
     if (!response.ok) {
-      return res.status(500).json({ error: 'Ошибка Groq API', details: data.error?.message });
+      // Возвращаем подробное сообщение от Groq, если что-то не так
+      const errMsg = data.error?.message || JSON.stringify(data);
+      return res.status(500).json({ error: `Groq Отклонил: ${errMsg}` });
     }
 
     let rawText = data.choices?.[0]?.message?.content || '';
-    
-    // Чистим текст от возможной разметки markdown
+
+    // Очищаем текст от лишних синтаксических мусоров
     rawText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
 
     return res.status(200).json({ result: rawText });
   } catch (error) {
-    return res.status(500).json({ error: 'Ошибка сервера', details: error.message });
+    return res.status(500).json({ error: `Ошибка сервера: ${error.message}` });
   }
 };
