@@ -36,42 +36,31 @@ module.exports = async (req, res) => {
   }
 ]`;
 
-    // Список доступных моделей на случай переименования на сервере
-    const candidateModels = [
-      'gemma2-9b-it',
-      'llama-3.2-3b-preview',
-      'llama-3.1-8b-instant',
-      'mixtral-8x7b-32768'
-    ];
+    // Актуальная модель Groq
+    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'llama-3.3-70b-versatile',
+        messages: [{ role: 'user', content: systemPrompt }],
+        temperature: 0.3,
+      }),
+    });
 
-    let lastError = null;
+    const data = await response.json();
 
-    for (const model of candidateModels) {
-      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: model,
-          messages: [{ role: 'user', content: systemPrompt }],
-          temperature: 0.3,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (response.ok) {
-        let rawText = data.choices?.[0]?.message?.content || '';
-        rawText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
-        return res.status(200).json({ result: rawText });
-      }
-
-      lastError = data.error?.message || JSON.stringify(data);
+    if (!response.ok) {
+      const errMsg = data.error?.message || JSON.stringify(data);
+      return res.status(500).json({ error: `Groq Отклонил: ${errMsg}` });
     }
 
-    return res.status(500).json({ error: `Groq Отклонил: ${lastError}` });
+    let rawText = data.choices?.[0]?.message?.content || '';
+    rawText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
+
+    return res.status(200).json({ result: rawText });
   } catch (error) {
     return res.status(500).json({ error: `Ошибка сервера: ${error.message}` });
   }
