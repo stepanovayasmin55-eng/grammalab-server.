@@ -20,33 +20,36 @@ module.exports = async (req, res) => {
       return res.status(500).json({ error: 'В Vercel не найден GROQ_API_KEY!' });
     }
 
-    // 1. Получаем список рабочих моделей
+    // 1. Получаем список моделей, реально доступных для твоей API-ключа
     const modelsResponse = await fetch('https://api.groq.com/openai/v1/models', {
       headers: { 'Authorization': `Bearer ${apiKey}` }
     });
     const modelsData = await modelsResponse.json();
 
-    let activeModel = 'llama-3.3-70b-versatile';
+    if (!modelsResponse.ok || !modelsData.data || modelsData.data.length === 0) {
+      return res.status(500).json({ 
+        error: `Проблема с ключом GROQ_API_KEY. Проверь его в console.groq.com.` 
+      });
+    }
 
-    if (modelsResponse.ok && modelsData.data && modelsData.data.length > 0) {
-      // Отфильтровываем аудио, модерацию и специфические модели
-      const validModels = modelsData.data.filter(m => {
-        const id = m.id.toLowerCase();
-        return (
-          id.includes('llama') &&
-          !id.includes('guard') &&
-          !id.includes('whisper') &&
-          !id.includes('orpheus') &&
-          !id.includes('llama3-8b-8192') &&
-          !id.includes('llama3-70b-8192')
-        );
+    // 2. Исключаем специфические модели (аудио, Guard, Orpheus, Whisper)
+    const availableModels = modelsData.data
+      .map(m => m.id)
+      .filter(id => {
+        const lower = id.toLowerCase();
+        return !lower.includes('guard') && 
+               !lower.includes('whisper') && 
+               !lower.includes('orpheus') && 
+               !lower.includes('vision') &&
+               !lower.includes('safetensors');
       });
 
-      if (validModels.length > 0) {
-        // Выбираем самую свежую или самую крупную модель
-        activeModel = validModels[0].id;
-      }
+    if (availableModels.length === 0) {
+      return res.status(500).json({ error: 'Нет доступных текстовых моделей в вашем аккаунте Groq.' });
     }
+
+    // Берем первую рабочую текстовую модель из доступных
+    const activeModel = availableModels[0];
 
     const systemPrompt = `Ты — эксперт по русскому языку. Сгенерируй 10 практических вопросов по теме: "${prompt || 'Русский язык'}".
 
@@ -86,7 +89,7 @@ module.exports = async (req, res) => {
 
     let rawText = data.choices?.[0]?.message?.content || '';
     
-    // Чистим текст от markdown
+    // Очищаем от разметки markdown
     rawText = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
 
     const firstBracket = rawText.indexOf('[');
