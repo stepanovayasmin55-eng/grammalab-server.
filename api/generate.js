@@ -41,7 +41,7 @@ module.exports = async (req, res) => {
 3. Поле answer — это индекс верного ответа (0, 1 или 2).
 4. Варианты ответов короткие.
 
-Верни ТОЛЬКО валидный JSON-массив без markdown и любого другого текста:
+Верни ТОЛЬКО валидный JSON-массив без markdown-разметки (без \`\`\`json) и без постороннего текста:
 [
   {
     "question": "Текст вопроса?",
@@ -60,7 +60,6 @@ module.exports = async (req, res) => {
         model: activeModel,
         messages: [{ role: 'user', content: systemPrompt }],
         temperature: 0.2,
-        response_format: { type: "json_object" }
       }),
     });
 
