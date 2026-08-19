@@ -41,7 +41,7 @@ module.exports = async (req, res) => {
     let rawText = null;
     let lastError = null;
 
-    // 1. Пробуем Groq (актуальные модели)
+    // 1. Попытка через Groq API
     if (groqKey) {
       const groqModels = ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant'];
 
@@ -73,11 +73,11 @@ module.exports = async (req, res) => {
       }
     }
 
-    // 2. Резервный Gemini API (с актуальной моделью gemini-2.0-flash)
+    // 2. Резервный Gemini API (модель gemini-3.6-flash)
     if (!rawText && geminiKey) {
       try {
         const geminiResponse = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${geminiKey}`,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -102,7 +102,7 @@ module.exports = async (req, res) => {
       return res.status(500).json({ error: `Не удалось сгенерировать вопросы: ${lastError}` });
     }
 
-    // Вырезаем и парсим JSON
+    // Очистка и парсинг JSON
     rawText = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
     const firstBracket = rawText.indexOf('[');
     const lastBracket = rawText.lastIndexOf(']');
