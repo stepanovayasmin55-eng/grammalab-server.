@@ -20,8 +20,28 @@ module.exports = async (req, res) => {
       return res.status(500).json({ error: 'В Vercel не найден GROQ_API_KEY!' });
     }
 
-    // Включаем проверенную рабочую модель
-    const activeModel = 'llama-3.1-8b-instant';
+    // 1. Запрашиваем доступные модели
+    const modelsResponse = await fetch('https://api.groq.com/openai/v1/models', {
+      headers: { 'Authorization': `Bearer ${apiKey}` }
+    });
+    const modelsData = await modelsResponse.json();
+
+    if (!modelsResponse.ok || !modelsData.data || modelsData.data.length === 0) {
+      return res.status(500).json({ 
+        error: `Проблема с ключом GROQ_API_KEY. Проверь его в console.groq.com.` 
+      });
+    }
+
+    // 2. Ищем подходящую модель семейства Llama, исключая аудио и узкие инструменты
+    const llamaModel = modelsData.data.find(m => 
+      m.id.toLowerCase().includes('llama') && 
+      !m.id.toLowerCase().includes('guard') && 
+      !m.id.toLowerCase().includes('whisper') &&
+      !m.id.toLowerCase().includes('orpheus')
+    );
+
+    // Если нашли Llama — берём её, иначе fallback на стандартное имя 'llama3-8b-8192'
+    const activeModel = llamaModel ? llamaModel.id : 'llama3-8b-8192';
 
     const systemPrompt = `Ты — эксперт по русскому языку. Сгенерируй 10 практических вопросов по теме: "${prompt || 'Русский язык'}".
 
@@ -56,12 +76,12 @@ module.exports = async (req, res) => {
     const data = await response.json();
 
     if (!response.ok) {
-      return res.status(500).json({ error: `Ошибка генерации: ${data.error?.message}` });
+      return res.status(500).json({ error: `Ошибка генерации (${activeModel}): ${data.error?.message}` });
     }
 
     let rawText = data.choices?.[0]?.message?.content || '';
     
-    // Очищаем от разметки markdown
+    // Чистим ответ от markdown
     rawText = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
 
     const firstBracket = rawText.indexOf('[');
