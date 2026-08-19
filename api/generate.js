@@ -14,18 +14,11 @@ module.exports = async (req, res) => {
 
   try {
     const { prompt } = req.body || {};
-    const apiKey = process.env.GROQ_API_KEY ? process.env.GROQ_API_KEY.trim() : null;
+    const apiKey = process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.trim() : null;
 
     if (!apiKey) {
-      return res.status(500).json({ error: 'В Vercel не найден GROQ_API_KEY!' });
+      return res.status(500).json({ error: 'В Vercel не найден GEMINI_API_KEY!' });
     }
-
-    // Актуальные модели Groq
-    const candidateModels = [
-      'llama-3.3-70b-versatile',
-      'llama3-70b-8192',
-      'mixtral-8x7b-32768'
-    ];
 
     const systemPrompt = `Ты — эксперт по русскому языку. Сгенерируй 10 практических вопросов по теме: "${prompt || 'Русский язык'}".
 
@@ -35,7 +28,7 @@ module.exports = async (req, res) => {
 3. Поле answer — это индекс верного ответа (0, 1 или 2).
 4. Варианты ответов короткие.
 
-Верни ТОЛЬКО валидный JSON-массив без markdown-разметки (без \`\`\`json) и без любого другого текста:
+Верни ТОЛЬКО валидный JSON-массив без markdown-разметки:
 [
   {
     "question": "Текст вопроса?",
@@ -44,41 +37,21 @@ module.exports = async (req, res) => {
   }
 ]`;
 
-    let rawText = null;
-    let lastError = null;
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: systemPrompt }] }]
+      }),
+    });
 
-    for (const model of candidateModels) {
-      try {
-        const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${apiKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: model,
-            messages: [{ role: 'user', content: systemPrompt }],
-            temperature: 0.2
-          }),
-        });
+    const data = await response.json();
 
-        const data = await response.json();
-
-        if (response.ok && data.choices?.[0]?.message?.content) {
-          rawText = data.choices[0].message.content;
-          break;
-        } else {
-          lastError = data.error?.message || 'Неизвестная ошибка модели';
-        }
-      } catch (err) {
-        lastError = err.message;
-      }
+    if (!response.ok) {
+      return res.status(500).json({ error: `Ошибка Gemini: ${data.error?.message}` });
     }
 
-    if (!rawText) {
-      return res.status(500).json({ error: `Ошибка генерации: ${lastError}` });
-    }
-
+    let rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
     rawText = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
 
     const firstBracket = rawText.indexOf('[');
@@ -89,6 +62,6 @@ module.exports = async (req, res) => {
 
     return res.status(200).json({ result: rawText });
   } catch (error) {
-    return res.status(500).json({ error: `Ошибка обработки ответа: ${error.message}` });
+    return res.status(500).json({ error: `Ошибка генерации: ${error.message}` });
   }
 };
