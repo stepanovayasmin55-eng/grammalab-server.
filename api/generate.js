@@ -22,12 +22,22 @@ module.exports = async (req, res) => {
 
     const systemPrompt = `Ты — эксперт по русскому языку. Сгенерируй 3 коротких вопроса по теме: "${prompt || 'Орфография'}".
 
-СТРОГИЕ ПРАВИЛА:
-1. Выведи ТОЛЬКО массив JSON. Никакого текста, пояснений или скобок до и после JSON.
-2. Не используй кавычки (" ") и скобки () внутри самих вопросов и ответов.
-3. Формат каждого объекта:
-   {"question": "Текст", "options": ["Вариант1", "Вариант2", "Вариант3"], "answer": 0}`;
+ВЫВЕДИ ТОЛЬКО МАССИВ JSON. НЕ ИСПОЛЬЗУЙ ВВОДНЫЕ СЛОВА И ТЕКСТ.
 
+[
+  {
+    "question": "Текст вопроса без кавычек",
+    "options": ["Вариант1", "Вариант2", "Вариант3"],
+    "answer": 0
+  }
+]
+
+ПРАВИЛА:
+1. Строго 3 вопроса.
+2. В текстах вопросов и ответов НЕ используй двойные и одинарные кавычки.
+3. Поле answer — это индекс от 0 до 2.`;
+
+    // Запрос к модели gemini-3.6-flash
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${geminiKey}`,
       {
@@ -39,7 +49,7 @@ module.exports = async (req, res) => {
           contents: [{ parts: [{ text: systemPrompt }] }],
           generationConfig: {
             temperature: 0.1,
-            maxOutputTokens: 500,
+            maxOutputTokens: 600,
             responseMimeType: 'application/json'
           }
         }),
@@ -60,18 +70,23 @@ module.exports = async (req, res) => {
       return res.status(500).json({ error: 'ИИ вернул пустой ответ.' });
     }
 
-    // МАСКА ОЧИСТКИ: находим строго границы JSON-массива от первой '[' до последней ']'
+    // Достаем массив из ответа независимо от того, есть ли вокруг скобки или тексты
     const startIdx = rawText.indexOf('[');
     const endIdx = rawText.lastIndexOf(']');
 
-    if (startIdx === -1 || endIdx === -1) {
-      return res.status(500).json({ error: 'ИИ вернул ответ в некорректном формате.' });
+    if (startIdx !== -1 && endIdx !== -1) {
+      rawText = rawText.substring(startIdx, endIdx + 1);
     }
 
-    // Вырезаем только JSON и убираем лишние символы
-    const jsonString = rawText.substring(startIdx, endIdx + 1).trim();
+    let questionsArray;
+    try {
+      questionsArray = JSON.parse(rawText);
+    } catch (e) {
+      // Резервная очистка от внутренних переносов строк
+      const cleanText = rawText.replace(/[\r\n]+/g, ' ').trim();
+      questionsArray = JSON.parse(cleanText);
+    }
 
-    const questionsArray = JSON.parse(jsonString);
     return res.status(200).json(questionsArray);
 
   } catch (error) {
