@@ -14,11 +14,10 @@ module.exports = async (req, res) => {
 
   try {
     const { prompt } = req.body || {};
-    const groqKey = process.env.GROQ_API_KEY ? process.env.GROQ_API_KEY.trim() : null;
     const geminiKey = process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.trim() : null;
 
-    if (!groqKey && !geminiKey) {
-      return res.status(500).json({ error: 'В Vercel не найдены ключи API!' });
+    if (!geminiKey) {
+      return res.status(500).json({ error: 'В Vercel не найден переменная GEMINI_API_KEY!' });
     }
 
     const systemPrompt = `Ты — эксперт по русскому языку. Сгенерируй 10 практических вопросов по теме: "${prompt || 'Русский язык'}".
@@ -29,7 +28,7 @@ module.exports = async (req, res) => {
 3. Поле answer — это индекс верного ответа (0, 1 или 2).
 4. Варианты ответов короткие.
 
-Верни ТОЛЬКО валидный JSON-массив без markdown-разметки:
+Верни ТОЛЬКО валидный JSON-массив без markdown-разметки и дополнительного текста:
 [
   {
     "question": "Текст вопроса?",
@@ -38,81 +37,49 @@ module.exports = async (req, res) => {
   }
 ]`;
 
-    let rawText = null;
-    let lastError = null;
-
-    // 1. Попытка через Gemini API
-    if (geminiKey) {
-      try {
-        const geminiResponse = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [{ parts: [{ text: systemPrompt }] }],
-              generationConfig: {
-                response_mime_type: 'application/json'
-              }
-            }),
+    // Вызываем прямой эндпоинт Gemini API v1beta
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [{ text: systemPrompt }]
+            }
+          ],
+          generationConfig: {
+            temperature: 0.3,
+            responseMimeType: 'application/json'
           }
-        );
-
-        const geminiData = await geminiResponse.json();
-        if (geminiResponse.ok && geminiData.candidates?.[0]?.content?.parts?.[0]?.text) {
-          rawText = geminiData.candidates[0].content.parts[0].text;
-        } else {
-          lastError = `Gemini: ${geminiData.error?.message || 'Ошибка генерации'}`;
-        }
-      } catch (err) {
-        lastError = `Gemini Error: ${err.message}`;
+        }),
       }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      return res.status(500).json({ 
+        error: `Ошибка Gemini API: ${data.error?.message || 'Неизвестная ошибка'}` 
+      });
     }
 
-    // 2. Резервная попытка через Groq API (только действующая модель)
-    if (!rawText && groqKey) {
-      try {
-        const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${groqKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: 'llama-3.3-70b-versatile',
-            messages: [{ role: 'user', content: systemPrompt }],
-            temperature: 0.2
-          }),
-        });
-
-        const data = await response.json();
-        if (response.ok && data.choices?.[0]?.message?.content) {
-          rawText = data.choices[0].message.content;
-        } else {
-          lastError = `Groq: ${data.error?.message || 'Ошибка доступа'}`;
-        }
-      } catch (err) {
-        lastError = `Groq Error: ${err.message}`;
-      }
-    }
+    let rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
 
     if (!rawText) {
-      return res.status(500).json({ error: `Не удалось сгенерировать вопросы: ${lastError}` });
+      return res.status(500).json({ error: 'ИИ вернул пустой ответ.' });
     }
 
-    // Парсим результат
+    // Очищаем текст от возможных лишних тегов
     rawText = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
-    const firstBracket = rawText.indexOf('[');
-    const lastBracket = rawText.lastIndexOf(']');
-    
-    if (firstBracket !== -1 && lastBracket !== -1) {
-      rawText = rawText.substring(firstBracket, lastBracket + 1);
-    }
 
     const questionsArray = JSON.parse(rawText);
 
     return res.status(200).json(questionsArray);
   } catch (error) {
-    return res.status(500).json({ error: `Ошибка обработки ответа: ${error.message}` });
+    return res.status(500).json({ error: `Ошибка генерации: ${error.message}` });
   }
 };
