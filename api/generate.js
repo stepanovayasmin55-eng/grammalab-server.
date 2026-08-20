@@ -20,10 +20,14 @@ module.exports = async (req, res) => {
       return res.status(500).json({ error: 'В Vercel не найдена переменная GEMINI_API_KEY!' });
     }
 
-    const systemPrompt = `Составь 5 коротких вопросов по русскому языку на тему: "${prompt || 'Орфография'}".
-В каждом вопросе строго 3 варианта ответа.
-Индекс верного ответа (answer) — от 0 до 2.
-Не используй кавычки внутри текста.`;
+    const systemPrompt = `Ты — эксперт по русскому языку. Сгенерируй 3 коротких вопроса по теме: "${prompt || 'Орфография'}".
+
+ПРАВИЛА:
+1. Строго 3 вопроса.
+2. В каждом вопросе ровно 3 коротких варианта ответа.
+3. Поле answer — это индекс ответа (0, 1 или 2).
+4. Пиши весь текст каждого вопроса и варианта strictly в одну строку без переносов строк (newline).
+5. Не используй двойные кавычки внутри текста.`;
 
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${geminiKey}`,
@@ -36,7 +40,7 @@ module.exports = async (req, res) => {
           contents: [{ parts: [{ text: systemPrompt }] }],
           generationConfig: {
             temperature: 0.1,
-            maxOutputTokens: 800,
+            maxOutputTokens: 600,
             responseMimeType: 'application/json',
             responseSchema: {
               type: 'ARRAY',
@@ -66,13 +70,18 @@ module.exports = async (req, res) => {
       });
     }
 
-    const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    let rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
 
     if (!rawText) {
       return res.status(500).json({ error: 'ИИ вернул пустой ответ.' });
     }
 
-    const questionsArray = JSON.parse(rawText);
+    // Удаляем возможные неэкранированные переносы строк внутри JSON-строк
+    const cleanJson = rawText
+      .replace(/[\r\n]+/g, ' ')
+      .trim();
+
+    const questionsArray = JSON.parse(cleanJson);
     return res.status(200).json(questionsArray);
 
   } catch (error) {
