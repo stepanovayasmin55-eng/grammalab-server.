@@ -37,9 +37,9 @@ module.exports = async (req, res) => {
   }
 ]`;
 
-    // Используем актуальную модель gemini-2.5-flash
+    // Вызываем актуальную модель gemini-3.6-flash
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${geminiKey}`,
       {
         method: 'POST',
         headers: {
@@ -73,7 +73,6 @@ module.exports = async (req, res) => {
       return res.status(500).json({ error: 'ИИ вернул пустой ответ.' });
     }
 
-    // Очистка текста от возможных переносов или разметки
     rawText = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
 
     const questionsArray = JSON.parse(rawText);
