@@ -43,7 +43,7 @@ module.exports = async (req, res) => {
         'Authorization': `Bearer ${groqKey}`
       },
       body: JSON.stringify({
-        model: 'llama-3.3-70b-versatile',
+        model: 'llama-3.3-70b-specdec',
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: `Тема: ${prompt || 'Орфография'}` }
@@ -67,7 +67,6 @@ module.exports = async (req, res) => {
       return res.status(500).json({ error: 'ИИ вернул пустой ответ.' });
     }
 
-    // Если Groq обернул массив в объект {"questions": [...]} или {"items": [...]}
     const parsed = JSON.parse(rawText);
     const questionsArray = Array.isArray(parsed) 
       ? parsed 
