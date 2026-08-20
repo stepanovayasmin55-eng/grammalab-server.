@@ -20,26 +20,18 @@ module.exports = async (req, res) => {
       return res.status(500).json({ error: 'В Vercel не найдена переменная GEMINI_API_KEY!' });
     }
 
-    const systemPrompt = `Ты — эксперт по русскому языку. Сгенерируй 3 коротких вопроса по теме: "${prompt || 'Орфография'}".
+    const systemPrompt = `Ты — генератор тестов по русскому языку. Сгенерируй 3 коротких вопроса по теме: "${prompt || 'Орфография'}".
 
-ВЫВЕДИ ТОЛЬКО МАССИВ JSON. НЕ ИСПОЛЬЗУЙ ВВОДНЫЕ СЛОВА И ТЕКСТ.
+Выдай ТОЛЬКО JSON-массив из 3 элементов.
+Каждый элемент содержат поля:
+- "question": текст вопроса (строка, без внутренних кавычек и переносов строк)
+- "options": массив из 3 вариантов ответа (массив строк)
+- "answer": индекс правильного ответа (число 0, 1 или 2)
 
-[
-  {
-    "question": "Текст вопроса без кавычек",
-    "options": ["Вариант1", "Вариант2", "Вариант3"],
-    "answer": 0
-  }
-]
+Не используй никакие кавычки внутри самих вопросов или ответов.`;
 
-ПРАВИЛА:
-1. Строго 3 вопроса.
-2. В текстах вопросов и ответов НЕ используй двойные и одинарные кавычки.
-3. Поле answer — это индекс от 0 до 2.`;
-
-    // Запрос к модели gemini-3.6-flash
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${geminiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
       {
         method: 'POST',
         headers: {
@@ -49,7 +41,7 @@ module.exports = async (req, res) => {
           contents: [{ parts: [{ text: systemPrompt }] }],
           generationConfig: {
             temperature: 0.1,
-            maxOutputTokens: 600,
+            maxOutputTokens: 800,
             responseMimeType: 'application/json'
           }
         }),
@@ -70,23 +62,19 @@ module.exports = async (req, res) => {
       return res.status(500).json({ error: 'ИИ вернул пустой ответ.' });
     }
 
-    // Достаем массив из ответа независимо от того, есть ли вокруг скобки или тексты
+    // Вырезаем чисто JSON-массив от [ до ]
     const startIdx = rawText.indexOf('[');
     const endIdx = rawText.lastIndexOf(']');
-
     if (startIdx !== -1 && endIdx !== -1) {
       rawText = rawText.substring(startIdx, endIdx + 1);
     }
 
-    let questionsArray;
-    try {
-      questionsArray = JSON.parse(rawText);
-    } catch (e) {
-      // Резервная очистка от внутренних переносов строк
-      const cleanText = rawText.replace(/[\r\n]+/g, ' ').trim();
-      questionsArray = JSON.parse(cleanText);
-    }
+    // Заменяем неэкранированные переносы строк внутри JSON-строк
+    const safeJsonString = rawText
+      .replace(/\r?\n/g, ' ')
+      .replace(/\t/g, ' ');
 
+    const questionsArray = JSON.parse(safeJsonString);
     return res.status(200).json(questionsArray);
 
   } catch (error) {
