@@ -20,17 +20,13 @@ module.exports = async (req, res) => {
       return res.status(500).json({ error: 'В Vercel не найдена переменная GEMINI_API_KEY!' });
     }
 
-    const systemPrompt = `Ты — эксперт по русскому языку. Сгенерируй 5 практических вопросов по теме: "${prompt || 'Русский язык'}".
+    const systemPrompt = `Составь 5 коротких вопросов по русскому языку на тему: "${prompt || 'Орфография'}".
+В каждом вопросе строго 3 варианта ответа.
+Индекс верного ответа (answer) — от 0 до 2.
+Не используй кавычки внутри текста.`;
 
-ПРАВИЛА:
-1. Ровно 5 вопросов.
-2. Для каждого вопроса ровно 3 варианта ответа в options (1 верный, 2 неверных).
-3. Поле answer — это индекс верного ответа (0, 1 или 2).
-4. Не используй двойные кавычки внутри текста вопросов и вариантов (заменяй их на ёлочки « »).`;
-
-    // Вызываем gemini-3.6-flash с гарантированной схемой JSON
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${geminiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
       {
         method: 'POST',
         headers: {
@@ -39,7 +35,8 @@ module.exports = async (req, res) => {
         body: JSON.stringify({
           contents: [{ parts: [{ text: systemPrompt }] }],
           generationConfig: {
-            temperature: 0.2,
+            temperature: 0.1,
+            maxOutputTokens: 800,
             responseMimeType: 'application/json',
             responseSchema: {
               type: 'ARRAY',
