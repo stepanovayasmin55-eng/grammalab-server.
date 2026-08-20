@@ -20,9 +20,23 @@ module.exports = async (req, res) => {
       return res.status(500).json({ error: 'В Vercel не найдена переменная GEMINI_API_KEY!' });
     }
 
-    const systemPrompt = `Составь 3 тестовых вопроса по русскому языку на тему: "${prompt || 'Орфография'}".
-Для каждого вопроса укажи 3 варианта ответа и верный индекс (0, 1 или 2). В тексте не используй кавычки.`;
+    const systemPrompt = `Ты — эксперт по русскому языку. Сгенерируй 3 коротких вопроса по теме: "${prompt || 'Орфография'}".
 
+ВЫВЕДИ ТОЛЬКО МАССИВ JSON БЕЗ МАРКДАУНА И ТЕКСТА:
+[
+  {
+    "question": "Текст вопроса без кавычек",
+    "options": ["Вариант 1", "Вариант 2", "Вариант 3"],
+    "answer": 0
+  }
+]
+
+ПРАВИЛА:
+1. Ровно 3 вопроса.
+2. В текстах вопросов и ответов НЕ используй кавычки.
+3. Каждое значение пиши строго в одну строку.`;
+
+    // Запрос к модели gemini-3.6-flash
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${geminiKey}`,
       {
@@ -34,22 +48,8 @@ module.exports = async (req, res) => {
           contents: [{ parts: [{ text: systemPrompt }] }],
           generationConfig: {
             temperature: 0.1,
-            responseMimeType: 'application/json',
-            responseSchema: {
-              type: 'ARRAY',
-              items: {
-                type: 'OBJECT',
-                properties: {
-                  question: { type: 'STRING' },
-                  options: {
-                    type: 'ARRAY',
-                    items: { type: 'STRING' }
-                  },
-                  answer: { type: 'INTEGER' }
-                },
-                required: ['question', 'options', 'answer']
-              }
-            }
+            maxOutputTokens: 600,
+            responseMimeType: 'application/json'
           }
         }),
       }
@@ -63,14 +63,34 @@ module.exports = async (req, res) => {
       });
     }
 
-    const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    let rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
 
     if (!rawText) {
       return res.status(500).json({ error: 'ИИ вернул пустой ответ.' });
     }
 
-    // В режиме responseSchema API гарантированно отдаёт строгий JSON
-    const questionsArray = JSON.parse(rawText);
+    // Чистим текст от блоков кода ```json ... ```
+    rawText = rawText.trim();
+    if (rawText.startsWith('```')) {
+      rawText = rawText.replace(/^```(json)?/i, '').replace(/```$/, '').trim();
+    }
+
+    // Достаем строго JSON-массив от '[' до ']'
+    const startIdx = rawText.indexOf('[');
+    const endIdx = rawText.lastIndexOf(']');
+    if (startIdx !== -1 && endIdx !== -1) {
+      rawText = rawText.substring(startIdx, endIdx + 1);
+    }
+
+    let questionsArray;
+    try {
+      questionsArray = JSON.parse(rawText);
+    } catch (e) {
+      // Запасной план: удаляем случайные переносы строк, которые могли сломать JSON
+      const sanitized = rawText.replace(/[\r\n]+/g, ' ');
+      questionsArray = JSON.parse(sanitized);
+    }
+
     return res.status(200).json(questionsArray);
 
   } catch (error) {
