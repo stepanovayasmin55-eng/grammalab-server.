@@ -22,18 +22,20 @@ module.exports = async (req, res) => {
 
     const systemPrompt = `Ты — эксперт по русскому языку. Сгенерируй 3 коротких теста по теме: "${prompt || 'Орфография'}".
 
-Выведи ТОЛЬКО чистый JSON-массив без какого-либо текста, разметки или вводных слов.
-
-Структура каждого объекта в массиве:
+Выведи ответ СТРОГО в формате JSON с ключом "questions":
 {
-  "question": "Текст вопроса без кавычек",
-  "options": ["Вариант1", "Вариант2", "Вариант3"],
-  "answer": 0
+  "questions": [
+    {
+      "question": "Текст вопроса без кавычек",
+      "options": ["Вариант1", "Вариант2", "Вариант3"],
+      "answer": 0
+    }
+  ]
 }
 
-Правила:
+ПРАВИЛА:
 1. Ровно 3 вопроса.
-2. В текстах вопросов и ответов не используй кавычки.
+2. В текстах вопросов и ответов не используй никакие кавычки.
 3. Поле answer — это индекс правильного ответа (0, 1 или 2).`;
 
     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -43,7 +45,7 @@ module.exports = async (req, res) => {
         'Authorization': `Bearer ${groqKey}`
       },
       body: JSON.stringify({
-        model: 'llama-3.3-70b-specdec',
+        model: 'llama3-70b-8192',
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: `Тема: ${prompt || 'Орфография'}` }
@@ -61,16 +63,14 @@ module.exports = async (req, res) => {
       });
     }
 
-    let rawText = data.choices?.[0]?.message?.content;
+    const rawText = data.choices?.[0]?.message?.content;
 
     if (!rawText) {
       return res.status(500).json({ error: 'ИИ вернул пустой ответ.' });
     }
 
-    const parsed = JSON.parse(rawText);
-    const questionsArray = Array.isArray(parsed) 
-      ? parsed 
-      : (parsed.questions || parsed.items || Object.values(parsed)[0]);
+    const parsedData = JSON.parse(rawText);
+    const questionsArray = parsedData.questions || parsedData.items || (Array.isArray(parsedData) ? parsedData : Object.values(parsedData)[0]);
 
     return res.status(200).json(questionsArray);
 
