@@ -20,12 +20,12 @@ module.exports = async (req, res) => {
       return res.status(500).json({ error: 'В Vercel не найдена переменная GEMINI_API_KEY!' });
     }
 
-    const systemPrompt = `Ты — эксперт по русскому языку. Сгенерируй 10 практических вопросов по теме: "${prompt || 'Русский язык'}".
+    const systemPrompt = `Ты — эксперт по русскому языку. Сгенерируй 5 коротких вопросов по теме: "${prompt || 'Русский язык'}".
 
 ПРАВИЛА:
-1. Ровно 10 вопросов.
+1. Ровно 5 вопросов.
 2. Для каждого вопроса СТРОГО 3 варианта ответа в массиве options (1 верный, 2 неверных).
-3. Поле answer — это индекс верного ответа (0, 1 или 2).
+3. Поле answer — индекс верного ответа (0, 1 или 2).
 4. Варианты ответов короткие.
 
 Верни ТОЛЬКО валидный JSON-массив без markdown-разметки:
@@ -37,22 +37,18 @@ module.exports = async (req, res) => {
   }
 ]`;
 
-    // Вызываем актуальную модель gemini-3.6-flash
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${geminiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
       {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          contents: [
-            {
-              parts: [{ text: systemPrompt }]
-            }
-          ],
+          contents: [{ parts: [{ text: systemPrompt }] }],
           generationConfig: {
-            temperature: 0.3,
+            temperature: 0.2,
+            maxOutputTokens: 1000,
             responseMimeType: 'application/json'
           }
         }),
@@ -73,11 +69,18 @@ module.exports = async (req, res) => {
       return res.status(500).json({ error: 'ИИ вернул пустой ответ.' });
     }
 
+    // Безопасное извлечение JSON массива
     rawText = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
+    const startIdx = rawText.indexOf('[');
+    const endIdx = rawText.lastIndexOf(']');
+
+    if (startIdx !== -1 && endIdx !== -1) {
+      rawText = rawText.substring(startIdx, endIdx + 1);
+    }
 
     const questionsArray = JSON.parse(rawText);
-
     return res.status(200).json(questionsArray);
+
   } catch (error) {
     return res.status(500).json({ error: `Ошибка генерации: ${error.message}` });
   }
