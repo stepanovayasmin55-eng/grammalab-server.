@@ -22,21 +22,12 @@ module.exports = async (req, res) => {
 
     const systemPrompt = `Ты — эксперт по русскому языку. Сгенерируй 3 коротких вопроса по теме: "${prompt || 'Орфография'}".
 
-ВЫВЕДИ ТОЛЬКО МАССИВ JSON БЕЗ МАРКДАУНА И ТЕКСТА:
-[
-  {
-    "question": "Текст вопроса без кавычек",
-    "options": ["Вариант 1", "Вариант 2", "Вариант 3"],
-    "answer": 0
-  }
-]
+СТРОГИЕ ПРАВИЛА:
+1. Выведи ТОЛЬКО массив JSON. Никакого текста, пояснений или скобок до и после JSON.
+2. Не используй кавычки (" ") и скобки () внутри самих вопросов и ответов.
+3. Формат каждого объекта:
+   {"question": "Текст", "options": ["Вариант1", "Вариант2", "Вариант3"], "answer": 0}`;
 
-ПРАВИЛА:
-1. Ровно 3 вопроса.
-2. В текстах вопросов и ответов НЕ используй кавычки.
-3. Каждое значение пиши строго в одну строку.`;
-
-    // Запрос к модели gemini-3.6-flash
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${geminiKey}`,
       {
@@ -48,7 +39,7 @@ module.exports = async (req, res) => {
           contents: [{ parts: [{ text: systemPrompt }] }],
           generationConfig: {
             temperature: 0.1,
-            maxOutputTokens: 600,
+            maxOutputTokens: 500,
             responseMimeType: 'application/json'
           }
         }),
@@ -69,28 +60,18 @@ module.exports = async (req, res) => {
       return res.status(500).json({ error: 'ИИ вернул пустой ответ.' });
     }
 
-    // Чистим текст от блоков кода ```json ... ```
-    rawText = rawText.trim();
-    if (rawText.startsWith('```')) {
-      rawText = rawText.replace(/^```(json)?/i, '').replace(/```$/, '').trim();
-    }
-
-    // Достаем строго JSON-массив от '[' до ']'
+    // МАСКА ОЧИСТКИ: находим строго границы JSON-массива от первой '[' до последней ']'
     const startIdx = rawText.indexOf('[');
     const endIdx = rawText.lastIndexOf(']');
-    if (startIdx !== -1 && endIdx !== -1) {
-      rawText = rawText.substring(startIdx, endIdx + 1);
+
+    if (startIdx === -1 || endIdx === -1) {
+      return res.status(500).json({ error: 'ИИ вернул ответ в некорректном формате.' });
     }
 
-    let questionsArray;
-    try {
-      questionsArray = JSON.parse(rawText);
-    } catch (e) {
-      // Запасной план: удаляем случайные переносы строк, которые могли сломать JSON
-      const sanitized = rawText.replace(/[\r\n]+/g, ' ');
-      questionsArray = JSON.parse(sanitized);
-    }
+    // Вырезаем только JSON и убираем лишние символы
+    const jsonString = rawText.substring(startIdx, endIdx + 1).trim();
 
+    const questionsArray = JSON.parse(jsonString);
     return res.status(200).json(questionsArray);
 
   } catch (error) {
