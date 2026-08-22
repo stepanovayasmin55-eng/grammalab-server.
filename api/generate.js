@@ -14,63 +14,65 @@ module.exports = async (req, res) => {
 
   try {
     const { prompt } = req.body || {};
-    const geminiKey = process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.trim() : null;
+    const groqKey = process.env.GROQ_API_KEY ? process.env.GROQ_API_KEY.trim() : null;
 
-    if (!geminiKey) {
-      return res.status(500).json({ error: 'В Vercel не найдена переменная GEMINI_API_KEY!' });
+    if (!groqKey) {
+      return res.status(500).json({ error: 'В Vercel не найдена переменная GROQ_API_KEY!' });
     }
 
     const systemPrompt = `Ты — эксперт по русскому языку. Сгенерируй 3 коротких теста по теме: "${prompt || 'Орфография'}".
-В каждом вопросе ровно 3 варианта ответа. Поле answer — это индекс правильного ответа (0, 1 или 2). Не используй кавычки внутри текстов.`;
 
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${geminiKey}`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: systemPrompt }] }],
-          generationConfig: {
-            temperature: 0.1,
-            maxOutputTokens: 1000,
-            responseMimeType: 'application/json',
-            responseSchema: {
-              type: 'ARRAY',
-              items: {
-                type: 'OBJECT',
-                properties: {
-                  question: { type: 'STRING' },
-                  options: {
-                    type: 'ARRAY',
-                    items: { type: 'STRING' }
-                  },
-                  answer: { type: 'INTEGER' }
-                },
-                required: ['question', 'options', 'answer']
-              }
-            }
-          }
-        }),
-      }
-    );
+Выведи ответ СТРОГО в формате JSON с ключом "questions":
+{
+  "questions": [
+    {
+      "question": "Текст вопроса без кавычек",
+      "options": ["Вариант1", "Вариант2", "Вариант3"],
+      "answer": 0
+    }
+  ]
+}
 
-    const data = await response.json();
+Правила:
+1. Ровно 3 вопроса.
+2. В текстах вопросов и ответов не используй кавычки.
+3. Поле answer — это индекс правильного ответа (0, 1 или 2).`;
+
+    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${groqKey}`
+      },
+      body: JSON.stringify({
+        model: 'llama-3.3-70b-versatile',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: `Тема: ${prompt || 'Орфография'}` }
+        ],
+        temperature: 0.1,
+        response_format: { type: 'json_object' }
+      })
+    });
+
+    const responseText = await response.text();
 
     if (!response.ok) {
       return res.status(500).json({ 
-        error: `Ошибка Gemini API: ${data.error?.message || 'Неизвестная ошибка'}` 
+        error: `Ошибка Groq API: ${responseText}` 
       });
     }
 
-    const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    const data = JSON.parse(responseText);
+    const rawText = data.choices?.[0]?.message?.content;
 
     if (!rawText) {
       return res.status(500).json({ error: 'ИИ вернул пустой ответ.' });
     }
 
-    const questionsArray = JSON.parse(rawText);
+    const parsedData = JSON.parse(rawText);
+    const questionsArray = parsedData.questions || parsedData.items || (Array.isArray(parsedData) ? parsedData : Object.values(parsedData)[0]);
+
     return res.status(200).json(questionsArray);
 
   } catch (error) {
